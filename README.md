@@ -112,13 +112,14 @@ Swift 6 · SwiftUI · ScreenCaptureKit · AVFAudio · CoreAudio · AppKit · Swi
 ## Build commands
 
 ```
-just build      swift build -c release
-just bundle     build + create .app bundle + codesign
-just run        bundle + open .app
-just install    bundle + copy to /Applications
-just clean      remove build artifacts
-just fmt        swift-format
-just lint       swift-format --lint
+just build          swift build -c release
+just bundle         build + create .app bundle + codesign
+just run            bundle + open .app
+just install        bundle + copy to /Applications
+just release 1.2.0  bundle + upload to GitHub Releases
+just clean          remove build artifacts
+just fmt            swift-format
+just lint           swift-format --lint
 ```
 
 ## License
