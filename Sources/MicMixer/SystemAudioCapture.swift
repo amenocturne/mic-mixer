@@ -78,26 +78,8 @@ final class SystemAudioCapture: @unchecked Sendable {
         try newStream.addStreamOutput(streamDelegate, type: .screen, sampleHandlerQueue: .global())
         try newStream.addStreamOutput(streamDelegate, type: .audio, sampleHandlerQueue: .global())
 
-        do {
-            try await newStream.startCapture()
-            NSLog("[MicMixer] SCStream started successfully")
-        } catch {
-            NSLog("[MicMixer] SCStream.startCapture failed: \(error) (code: \((error as NSError).code), domain: \((error as NSError).domain))")
-            throw error
-        }
+        try await newStream.startCapture()
         self.stream = newStream
-    }
-}
-
-func writeLog(_ msg: String) {
-    let line = "[\(Date())] \(msg)\n"
-    let path = NSHomeDirectory() + "/micmixer.log"
-    if let fh = FileHandle(forWritingAtPath: path) {
-        fh.seekToEndOfFile()
-        fh.write(line.data(using: .utf8)!)
-        fh.closeFile()
-    } else {
-        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
     }
 }
 
@@ -110,44 +92,13 @@ private final class StreamDelegate: NSObject, SCStreamDelegate, SCStreamOutput, 
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {}
 
-    private var loggedFormat = false
-
     func stream(
         _ stream: SCStream,
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of type: SCStreamOutputType
     ) {
-        guard type == .audio else { return }
-
-        if !loggedFormat {
-            loggedFormat = true
-            if let fmt = sampleBuffer.formatDescription {
-                let af = AVAudioFormat(cmAudioFormatDescription: fmt)
-                let msg = "Audio format: interleaved=\(af.isInterleaved), channels=\(af.channelCount), rate=\(af.sampleRate), common=\(af.commonFormat.rawValue)"
-                writeLog(msg)
-            }
-            writeLog("Samples: \(CMSampleBufferGetNumSamples(sampleBuffer)), hasData=\(sampleBuffer.dataBuffer != nil)")
-        }
-
-        guard let pcmBuffer = sampleBuffer.toPCMBuffer() else {
-            writeLog("toPCMBuffer returned nil")
-            return
-        }
-
-        // Log first buffer's actual audio data
-        if !loggedFormat {
-            loggedFormat = true  // avoid repeated second-format log
-            let hasFloat = pcmBuffer.floatChannelData != nil
-            let hasInt16 = pcmBuffer.int16ChannelData != nil
-            var peak: Float = 0
-            if let data = pcmBuffer.floatChannelData {
-                for i in 0..<min(Int(pcmBuffer.frameLength), 100) {
-                    peak = max(peak, abs(data[0][i]))
-                }
-            }
-            writeLog("PCM: frames=\(pcmBuffer.frameLength), float=\(hasFloat), int16=\(hasInt16), peakSample=\(peak)")
-        }
-
+        guard type == .audio,
+              let pcmBuffer = sampleBuffer.toPCMBuffer() else { return }
         onAudioBuffer?(pcmBuffer)
     }
 }

@@ -34,7 +34,7 @@ final class AudioMixer: @unchecked Sendable {
             object: micEngine, queue: .main
         ) { [weak self] _ in
             guard let self, self.isRunning else { return }
-            writeLog("[MicMixer] Audio config changed, restarting mic engine")
+
             try? self.micEngine.start()
             self.micPlayerNode.play()
         }

@@ -124,34 +124,34 @@ final class MixerState: ObservableObject, @unchecked Sendable {
     private func syncEngine() {
         if isActive {
             guard let device = selectedOutputDevice else {
-                writeLog("[MicMixer] No output device found")
+
                 errorMessage = "No output device. Install BlackHole."
                 return
             }
-            writeLog("[MicMixer] Starting with device: \(device.name)")
+
             errorMessage = nil
             mixer.stop()
             capture.stop()
             do {
                 try mixer.start(outputDeviceID: device.id)
-                writeLog("[MicMixer] Audio engine started")
+
                 mixer.setSystemVolume(systemVolume)
                 mixer.setMicVolume(micVolume)
                 Task { @MainActor in
                     do {
                         try await self.startCapture()
-                        writeLog("[MicMixer] Capture started")
+
                     } catch {
-                        writeLog("[MicMixer] Capture failed: \(error)")
+
                         self.errorMessage = "Capture: \(error.localizedDescription)"
                     }
                 }
             } catch {
-                writeLog("[MicMixer] Engine failed: \(error)")
+
                 errorMessage = "Engine: \(error.localizedDescription)"
             }
         } else {
-            writeLog("[MicMixer] Stopping")
+
             capture.stop()
             mixer.stop()
             errorMessage = nil
@@ -161,14 +161,14 @@ final class MixerState: ObservableObject, @unchecked Sendable {
     // Only restarts the audio engine with a new output device — capture keeps running
     private func reconnectOutput() {
         guard let device = selectedOutputDevice else { return }
-        writeLog("[MicMixer] Reconnecting output to \(device.name)")
+
         mixer.stop()
         do {
             try mixer.start(outputDeviceID: device.id)
             mixer.setSystemVolume(systemVolume)
             mixer.setMicVolume(micVolume)
         } catch {
-            writeLog("[MicMixer] Reconnect failed: \(error)")
+
             errorMessage = "Output device error: \(error.localizedDescription)"
         }
     }
