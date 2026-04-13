@@ -1,8 +1,7 @@
 import SwiftUI
 import ServiceManagement
-import os
-
-private let log = Logger(subsystem: "com.amenocturne.micmixer", category: "ui")
+import ScreenCaptureKit
+import AVFAudio
 
 @main
 struct MicMixerApp: App {
@@ -44,7 +43,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "MicMixer")
         }
 
-        log.info("App launched")
+        // Request permissions upfront so the first toggle works
+        requestPermissions()
+    }
+
+    private func requestPermissions() {
+        // Screen Recording — triggers TCC prompt if not granted
+        Task {
+            _ = try? await SCShareableContent.current
+        }
+        // Microphone — triggers TCC prompt if not granted
+        AVCaptureDevice.requestAccess(for: .audio) { _ in }
     }
 
     @objc private func handleClick() {
@@ -206,22 +215,30 @@ struct PopoverView: View {
 // Uses a reference-type smoother to avoid @State mutations in body
 final class LevelSmoother {
     private var value: Float = 0
+    private var logCount = 0
+    let label: String
+    init(_ label: String) { self.label = label }
     func update(peak: Float) -> Float {
         value = max(peak, value * 0.4)
+        if logCount < 20 && value > 0.001 {
+            logCount += 1
+            writeLog("\(label) smoother: peak=\(peak), smoothed=\(value)")
+        }
         return value
     }
 }
 
 struct LiveMeters: View {
     @ObservedObject var state: MixerState
-    @State private var micSmoother = LevelSmoother()
-    @State private var sysSmoother = LevelSmoother()
+    @State private var micSmoother = LevelSmoother("mic")
+    @State private var sysSmoother = LevelSmoother("sys")
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
-            let micPeak = state.mixer.peakMicLevel.withLock { v in let r = v; v = 0; return r }
-            let sysPeak = state.mixer.peakSystemLevel.withLock { v in let r = v; v = 0; return r }
-            // Scale by slider so meter reflects what the listener actually hears
+            // Decay peaks instead of resetting — avoids losing data when
+            // audio callbacks are slower than the UI refresh rate (mic = 10/sec vs UI = 30/sec)
+            let micPeak = state.mixer.peakMicLevel.withLock { v in let r = v; v *= 0.5; return r }
+            let sysPeak = state.mixer.peakSystemLevel.withLock { v in let r = v; v *= 0.5; return r }
             let sysLevel = sysSmoother.update(peak: sysPeak) * state.systemVolume
             let micLevel = micSmoother.update(peak: micPeak) * state.micVolume
             VStack(spacing: 8) {
