@@ -55,7 +55,13 @@ brew install amenocturne/tap/micmixer
 
 ### Download
 
-Grab the latest `.app` from [Releases](https://github.com/amenocturne/mic-mixer/releases), unzip, and drag to `/Applications/`.
+Grab the latest `.app` from [Releases](https://github.com/amenocturne/mic-mixer/releases), unzip, drag to `/Applications/`, then remove the quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MicMixer.app
+```
+
+The Homebrew install handles this automatically.
 
 ### Build from source
 
