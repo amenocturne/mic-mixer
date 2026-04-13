@@ -1,5 +1,5 @@
 @preconcurrency import ScreenCaptureKit
-import AVFAudio
+@preconcurrency import AVFAudio
 import CoreMedia
 
 final class SystemAudioCapture: @unchecked Sendable {
