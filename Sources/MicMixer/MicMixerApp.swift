@@ -157,6 +157,11 @@ struct PopoverView: View {
 
             TextField("Search apps...", text: $searchText)
                 .textFieldStyle(.roundedBorder)
+                .onSubmit {
+                    if let first = filteredApps.first {
+                        state.toggleApp(first.bundleIdentifier)
+                    }
+                }
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -177,6 +182,7 @@ struct PopoverView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 Picker("", selection: $state.selectedOutputDeviceUID) {
+                    Text("None").tag("")
                     ForEach(state.outputDevices) { device in
                         Text(device.name).tag(device.uid)
                     }
@@ -265,7 +271,7 @@ struct VolumeSlider: View {
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            Slider(value: $value, in: 0...1)
+            Slider(value: $value, in: 0...2)
             LevelMeter(level: level)
         }
     }
