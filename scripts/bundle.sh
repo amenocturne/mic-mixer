@@ -11,6 +11,7 @@ mkdir -p "$APP/Contents/Resources"
 
 cp "$BINARY" "$APP/Contents/MacOS/MicMixer"
 cp Resources/Info.plist "$APP/Contents/"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 
 codesign --force --sign - "$APP"
 
