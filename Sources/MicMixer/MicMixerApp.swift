@@ -1,6 +1,6 @@
 import SwiftUI
 import ServiceManagement
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 import AVFAudio
 
 @main
@@ -13,6 +13,7 @@ struct MicMixerApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
