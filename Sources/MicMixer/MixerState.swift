@@ -52,7 +52,11 @@ final class MixerState: ObservableObject, @unchecked Sendable {
     @Published var selectedOutputDeviceUID: String = "" {
         didSet {
             save()
-            if isActive { reconnectOutput() }
+            if isActive {
+                Task { @MainActor in self.syncEngine() }
+            } else if selectedOutputDevice != nil {
+                errorMessage = nil
+            }
         }
     }
 
@@ -61,7 +65,8 @@ final class MixerState: ObservableObject, @unchecked Sendable {
     var outputDevices: [AudioDevice] { listOutputDevices() }
 
     var selectedOutputDevice: AudioDevice? {
-        outputDevices.first { $0.uid == selectedOutputDeviceUID }
+        guard !selectedOutputDeviceUID.isEmpty else { return nil }
+        return outputDevices.first { $0.uid == selectedOutputDeviceUID }
             ?? findBlackHoleDevice()
     }
 

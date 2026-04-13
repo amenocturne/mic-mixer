@@ -13,12 +13,17 @@ final class SystemAudioCapture: @unchecked Sendable {
         channels: 2
     )!
 
+    // Always exclude our own process to prevent feedback loops
+    private static let selfBundleID = "com.amenocturne.micmixer"
+
     func start(excluding bundleIDs: Set<String>) async throws {
         let content = try await SCShareableContent.current
         guard let display = content.displays.first else { return }
 
+        var allExcluded = bundleIDs
+        allExcluded.insert(Self.selfBundleID)
         let excludedApps = content.applications.filter {
-            bundleIDs.contains($0.bundleIdentifier)
+            allExcluded.contains($0.bundleIdentifier)
         }
         let filter = SCContentFilter(
             display: display,
@@ -34,8 +39,10 @@ final class SystemAudioCapture: @unchecked Sendable {
         let content = try await SCShareableContent.current
         guard let display = content.displays.first else { return }
 
+        // Exclude self even in include mode
         let includedApps = content.applications.filter {
             bundleIDs.contains($0.bundleIdentifier)
+                && $0.bundleIdentifier != Self.selfBundleID
         }
         let filter = SCContentFilter(
             display: display,
