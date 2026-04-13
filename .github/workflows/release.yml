@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Create .app bundle
+        run: bash scripts/bundle.sh
+
+      - name: Create ZIP archive
+        run: |
+          ditto -c -k --keepParent MicMixer.app MicMixer.app.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MicMixer.app.zip
+          generate_release_notes: true
