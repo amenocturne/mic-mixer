@@ -2,8 +2,7 @@
 import AVFAudio
 import CoreMedia
 
-@MainActor
-final class SystemAudioCapture {
+final class SystemAudioCapture: @unchecked Sendable {
     var onAudioBuffer: (@Sendable (AVAudioPCMBuffer) -> Void)?
 
     private var stream: SCStream?
@@ -58,19 +57,40 @@ final class SystemAudioCapture {
         config.sampleRate = 48000
         config.channelCount = 2
 
-        // ScreenCaptureKit requires a video stream; use minimum dimensions to discard frames cheaply.
-        config.width = 1
-        config.height = 1
+        // SCStream requires video config even for audio-only
+        config.width = 2
+        config.height = 2
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        config.showsCursor = false
 
         let cb = onAudioBuffer
         let streamDelegate = StreamDelegate(onAudioBuffer: cb)
         self.delegate = streamDelegate
 
         let newStream = SCStream(filter: filter, configuration: config, delegate: streamDelegate)
-        try newStream.addStreamOutput(streamDelegate, type: .audio, sampleHandlerQueue: nil)
-        try await newStream.startCapture()
+        try newStream.addStreamOutput(streamDelegate, type: .screen, sampleHandlerQueue: .global())
+        try newStream.addStreamOutput(streamDelegate, type: .audio, sampleHandlerQueue: .global())
+
+        do {
+            try await newStream.startCapture()
+            NSLog("[MicMixer] SCStream started successfully")
+        } catch {
+            NSLog("[MicMixer] SCStream.startCapture failed: \(error) (code: \((error as NSError).code), domain: \((error as NSError).domain))")
+            throw error
+        }
         self.stream = newStream
+    }
+}
+
+func writeLog(_ msg: String) {
+    let line = "[\(Date())] \(msg)\n"
+    let path = NSHomeDirectory() + "/micmixer.log"
+    if let fh = FileHandle(forWritingAtPath: path) {
+        fh.seekToEndOfFile()
+        fh.write(line.data(using: .utf8)!)
+        fh.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8))
     }
 }
 
@@ -83,38 +103,70 @@ private final class StreamDelegate: NSObject, SCStreamDelegate, SCStreamOutput, 
 
     func stream(_ stream: SCStream, didStopWithError error: any Error) {}
 
+    private var loggedFormat = false
+
     func stream(
         _ stream: SCStream,
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of type: SCStreamOutputType
     ) {
         guard type == .audio else { return }
-        guard let pcmBuffer = sampleBuffer.toPCMBuffer() else { return }
+
+        if !loggedFormat {
+            loggedFormat = true
+            if let fmt = sampleBuffer.formatDescription {
+                let af = AVAudioFormat(cmAudioFormatDescription: fmt)
+                let msg = "Audio format: interleaved=\(af.isInterleaved), channels=\(af.channelCount), rate=\(af.sampleRate), common=\(af.commonFormat.rawValue)"
+                writeLog(msg)
+            }
+            writeLog("Samples: \(CMSampleBufferGetNumSamples(sampleBuffer)), hasData=\(sampleBuffer.dataBuffer != nil)")
+        }
+
+        guard let pcmBuffer = sampleBuffer.toPCMBuffer() else {
+            writeLog("toPCMBuffer returned nil")
+            return
+        }
+
+        // Log first buffer's actual audio data
+        if !loggedFormat {
+            loggedFormat = true  // avoid repeated second-format log
+            let hasFloat = pcmBuffer.floatChannelData != nil
+            let hasInt16 = pcmBuffer.int16ChannelData != nil
+            var peak: Float = 0
+            if let data = pcmBuffer.floatChannelData {
+                for i in 0..<min(Int(pcmBuffer.frameLength), 100) {
+                    peak = max(peak, abs(data[0][i]))
+                }
+            }
+            writeLog("PCM: frames=\(pcmBuffer.frameLength), float=\(hasFloat), int16=\(hasInt16), peakSample=\(peak)")
+        }
+
         onAudioBuffer?(pcmBuffer)
     }
 }
 
 private extension CMSampleBuffer {
+    // Copies audio data into a self-contained AVAudioPCMBuffer.
+    // Using CMSampleBufferCopyPCMDataIntoAudioBufferList instead of
+    // CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer to avoid
+    // a use-after-free: the latter writes pointers into a CMBlockBuffer
+    // that gets freed when the local ref goes out of scope.
     func toPCMBuffer() -> AVAudioPCMBuffer? {
         guard let formatDesc = formatDescription,
               dataBuffer != nil else { return nil }
 
         let audioFormat = AVAudioFormat(cmAudioFormatDescription: formatDesc)
         let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(self))
-        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount) else { return nil }
+        guard frameCount > 0,
+              let pcmBuffer = AVAudioPCMBuffer(pcmFormat: audioFormat, frameCapacity: frameCount)
+        else { return nil }
         pcmBuffer.frameLength = frameCount
 
-        var blockBufferRef: CMBlockBuffer?
-        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
             self,
-            bufferListSizeNeededOut: nil,
-            bufferListOut: pcmBuffer.mutableAudioBufferList,
-            bufferListSize: MemoryLayout<AudioBufferList>.size
-                + MemoryLayout<AudioBuffer>.size * Int(audioFormat.channelCount - 1),
-            blockBufferAllocator: nil,
-            blockBufferMemoryAllocator: nil,
-            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            blockBufferOut: &blockBufferRef
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: pcmBuffer.mutableAudioBufferList
         )
         guard status == noErr else { return nil }
         return pcmBuffer
