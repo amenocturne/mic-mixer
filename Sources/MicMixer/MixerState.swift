@@ -53,7 +53,13 @@ final class MixerState: ObservableObject, @unchecked Sendable {
         didSet {
             save()
             if isActive {
-                Task { @MainActor in self.syncEngine() }
+                // Full deactivate + activate cycle to pick up the new device
+                capture.stop()
+                mixer.stop()
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(200))
+                    self.syncEngine()
+                }
             } else if selectedOutputDevice != nil {
                 errorMessage = nil
             }
