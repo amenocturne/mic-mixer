@@ -50,8 +50,7 @@ MicMixer captures and mixes audio, but needs BlackHole (or similar) as the virtu
 ### Homebrew
 
 ```bash
-brew tap amenocturne/mic-mixer
-brew install --cask micmixer
+brew install amenocturne/tap/micmixer
 ```
 
 ### Download
