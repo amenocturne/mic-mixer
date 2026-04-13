@@ -1,4 +1,4 @@
-# MicMixer
+<h1 align="center">MicMixer</h1>
 
 <h3 align="center"><i>TWO SLIDERS. DONE.</i></h3>
 
