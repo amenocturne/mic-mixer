@@ -24,6 +24,8 @@ None of these give you a simple "pick apps, set volumes, go" experience. MicMixe
 
 No configuration files, no audio graphs, no sessions.
 
+> **Tip:** Disable noise reduction/suppression in your video call app (Zoom, Meet, Teams). It treats system audio as background noise and aggressively filters it out.
+
 ## Features
 
 **Menu bar native** — Lives in the menu bar. No dock icon, no windows. Click to open, click away to dismiss. Right-click for quick actions.
