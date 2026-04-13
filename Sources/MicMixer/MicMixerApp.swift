@@ -1,24 +1,109 @@
 import SwiftUI
 import ServiceManagement
+import os
+
+private let log = Logger(subsystem: "com.amenocturne.micmixer", category: "ui")
 
 @main
 struct MicMixerApp: App {
-    @State private var state = MixerState()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     var body: some Scene {
-        MenuBarExtra(
-            "MicMixer",
-            systemImage: state.isActive ? "waveform.circle.fill" : "waveform.circle"
-        ) {
-            PopoverView(state: state)
-                .frame(width: 300)
+        // All UI managed by AppDelegate — this body is never re-evaluated
+        Settings { EmptyView() }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem!
+    private var popover: NSPopover!
+    private let state = MixerState()
+    private var iconCancellable: Any?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "MicMixer")
+            button.action = #selector(handleClick)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.target = self
         }
-        .menuBarExtraStyle(.window)
+
+        popover = NSPopover()
+        popover.contentSize = NSSize(width: 300, height: 620)
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(
+            rootView: PopoverView(state: state)
+                .frame(width: 300)
+        )
+
+        // Update icon via Combine — no SwiftUI body re-evaluation
+        iconCancellable = state.$isActive.receive(on: DispatchQueue.main).sink { [weak self] active in
+            let name = active ? "waveform.circle.fill" : "waveform.circle"
+            self?.statusItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "MicMixer")
+        }
+
+        log.info("App launched")
+    }
+
+    @objc private func handleClick() {
+        guard let event = NSApp.currentEvent else { return }
+
+        if event.type == .rightMouseUp {
+            showMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    private func togglePopover() {
+        guard let button = statusItem.button else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+        }
+    }
+
+    private func showMenu() {
+        let menu = NSMenu()
+
+        let activeItem = NSMenuItem(
+            title: state.isActive ? "Deactivate" : "Activate",
+            action: #selector(toggleActive),
+            keyEquivalent: ""
+        )
+        activeItem.target = self
+        menu.addItem(activeItem)
+
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(
+            title: "Quit MicMixer",
+            action: #selector(quitApp),
+            keyEquivalent: "q"
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
+    }
+
+    @objc private func toggleActive() {
+        state.isActive.toggle()
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
     }
 }
 
 struct PopoverView: View {
-    @Bindable var state: MixerState
+    @ObservedObject var state: MixerState
     @State private var searchText = ""
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -30,7 +115,6 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Error banner
             if let error = state.errorMessage {
                 Text(error)
                     .font(.caption)
@@ -40,22 +124,16 @@ struct PopoverView: View {
                     .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
             }
 
-            // Master toggle
             Toggle(isOn: $state.isActive) {
                 Text("Active")
                     .font(.headline)
             }
             .toggleStyle(.switch)
 
-            // Volume sliders
-            VStack(spacing: 8) {
-                VolumeSlider(label: "System Audio", value: $state.systemVolume)
-                VolumeSlider(label: "Microphone", value: $state.micVolume)
-            }
+            LiveMeters(state: state)
 
             Divider()
 
-            // Filter mode
             Picker("Mode", selection: $state.filterMode) {
                 Text("Exclude").tag(FilterMode.exclude)
                 Text("Include").tag(FilterMode.include)
@@ -68,7 +146,6 @@ struct PopoverView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            // App list
             TextField("Search apps...", text: $searchText)
                 .textFieldStyle(.roundedBorder)
 
@@ -81,11 +158,10 @@ struct PopoverView: View {
                     }
                 }
             }
-            .frame(maxHeight: 200)
+            .frame(height: 300)
 
             Divider()
 
-            // Output device
             HStack {
                 Text("Output")
                     .font(.caption)
@@ -102,7 +178,6 @@ struct PopoverView: View {
 
             Divider()
 
-            // Footer
             HStack {
                 Toggle("Launch at Login", isOn: $launchAtLogin)
                     .font(.caption)
@@ -121,18 +196,46 @@ struct PopoverView: View {
                 Button("Quit") {
                     NSApplication.shared.terminate(nil)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .font(.caption)
+                .buttonStyle(.bordered)
             }
         }
         .padding(16)
     }
 }
 
+// Uses a reference-type smoother to avoid @State mutations in body
+final class LevelSmoother {
+    private var value: Float = 0
+    func update(peak: Float) -> Float {
+        value = max(peak, value * 0.4)
+        return value
+    }
+}
+
+struct LiveMeters: View {
+    @ObservedObject var state: MixerState
+    @State private var micSmoother = LevelSmoother()
+    @State private var sysSmoother = LevelSmoother()
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { _ in
+            let micPeak = state.mixer.peakMicLevel.withLock { v in let r = v; v = 0; return r }
+            let sysPeak = state.mixer.peakSystemLevel.withLock { v in let r = v; v = 0; return r }
+            // Scale by slider so meter reflects what the listener actually hears
+            let sysLevel = sysSmoother.update(peak: sysPeak) * state.systemVolume
+            let micLevel = micSmoother.update(peak: micPeak) * state.micVolume
+            VStack(spacing: 8) {
+                VolumeSlider(label: "System Audio", value: $state.systemVolume, level: sysLevel)
+                VolumeSlider(label: "Microphone", value: $state.micVolume, level: micLevel)
+            }
+        }
+    }
+}
+
 struct VolumeSlider: View {
     let label: String
     @Binding var value: Float
+    var level: Float = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -146,7 +249,25 @@ struct VolumeSlider: View {
                     .foregroundStyle(.secondary)
             }
             Slider(value: $value, in: 0...1)
+            LevelMeter(level: level)
         }
+    }
+}
+
+struct LevelMeter: View {
+    let level: Float
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(.quaternary)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(level > 0.8 ? Color.red : level > 0.5 ? Color.yellow : Color.green)
+                    .frame(width: geo.size.width * CGFloat(level))
+            }
+        }
+        .frame(height: 4)
     }
 }
 

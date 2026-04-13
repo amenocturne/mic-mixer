@@ -17,10 +17,8 @@ struct AppInfo: Identifiable, Hashable {
     }
 }
 
-@MainActor
-@Observable
-final class AppMonitor {
-    var apps: [AppInfo] = []
+final class AppMonitor: ObservableObject, @unchecked Sendable {
+    @Published var apps: [AppInfo] = []
 
     private var launchObserver: Any?
     private var terminateObserver: Any?
@@ -32,14 +30,14 @@ final class AppMonitor {
             forName: NSWorkspace.didLaunchApplicationNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            self?.refresh()
         }
 
         terminateObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refresh() }
+            self?.refresh()
         }
     }
 

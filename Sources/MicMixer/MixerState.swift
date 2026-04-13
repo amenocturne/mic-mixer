@@ -1,61 +1,62 @@
 import Foundation
-import Observation
+import Combine
 
-enum FilterMode: String, CaseIterable {
+enum FilterMode: String, CaseIterable, Sendable {
     case exclude
     case include
 }
 
-@MainActor
-@Observable
-final class MixerState {
-    var isActive = false {
-        didSet { Task { await syncEngine() } }
+final class MixerState: ObservableObject, @unchecked Sendable {
+    @Published var isActive = false {
+        didSet {
+            save()
+            Task { @MainActor in self.syncEngine() }
+        }
     }
 
-    var systemVolume: Float = 0.7 {
+    @Published var systemVolume: Float = 0.7 {
         didSet {
             mixer.setSystemVolume(systemVolume)
             save()
         }
     }
 
-    var micVolume: Float = 1.0 {
+    @Published var micVolume: Float = 1.0 {
         didSet {
             mixer.setMicVolume(micVolume)
             save()
         }
     }
 
-    var filterMode: FilterMode = .exclude {
+    @Published var filterMode: FilterMode = .exclude {
         didSet {
             save()
-            Task { await restartCapture() }
+            Task { @MainActor in self.restartCapture() }
         }
     }
 
-    var excludedAppBundleIDs: Set<String> = [] {
+    @Published var excludedAppBundleIDs: Set<String> = [] {
         didSet {
             save()
-            if filterMode == .exclude { Task { await restartCapture() } }
+            if filterMode == .exclude { Task { @MainActor in self.restartCapture() } }
         }
     }
 
-    var includedAppBundleIDs: Set<String> = [] {
+    @Published var includedAppBundleIDs: Set<String> = [] {
         didSet {
             save()
-            if filterMode == .include { Task { await restartCapture() } }
+            if filterMode == .include { Task { @MainActor in self.restartCapture() } }
         }
     }
 
-    var selectedOutputDeviceUID: String = "" {
+    @Published var selectedOutputDeviceUID: String = "" {
         didSet {
             save()
-            if isActive { Task { await syncEngine() } }
+            if isActive { Task { @MainActor in self.syncEngine() } }
         }
     }
 
-    var launchAtLogin = false
+    @Published var errorMessage: String?
 
     var outputDevices: [AudioDevice] { listOutputDevices() }
 
@@ -64,10 +65,8 @@ final class MixerState {
             ?? findBlackHoleDevice()
     }
 
-    var errorMessage: String?
-
     let appMonitor = AppMonitor()
-    private let mixer = AudioMixer()
+    let mixer = AudioMixer()
     private let capture = SystemAudioCapture()
 
     init() {
@@ -109,31 +108,43 @@ final class MixerState {
 
     // MARK: - Engine sync
 
-    private func syncEngine() async {
+    // Not async — runs on MainActor, dispatches capture start separately
+    // Never sets isActive from here — avoids re-entrant didSet loops
+    private func syncEngine() {
         if isActive {
             guard let device = selectedOutputDevice else {
-                errorMessage = "No output device selected. Install BlackHole to use MicMixer."
-                isActive = false
+                writeLog("[MicMixer] No output device found")
+                errorMessage = "No output device. Install BlackHole."
                 return
             }
+            writeLog("[MicMixer] Starting with device: \(device.name)")
             errorMessage = nil
             mixer.stop()
             capture.stop()
             do {
                 try mixer.start(outputDeviceID: device.id)
+                writeLog("[MicMixer] Audio engine started")
                 mixer.setSystemVolume(systemVolume)
                 mixer.setMicVolume(micVolume)
-                try await startCapture()
+                Task { @MainActor in
+                    do {
+                        try await self.startCapture()
+                        writeLog("[MicMixer] Capture started")
+                    } catch {
+                        writeLog("[MicMixer] Capture failed: \(error)")
+                        self.errorMessage = "Capture: \(error.localizedDescription)"
+                    }
+                }
             } catch {
-                errorMessage = "Failed to start audio engine: \(error.localizedDescription)"
-                isActive = false
+                writeLog("[MicMixer] Engine failed: \(error)")
+                errorMessage = "Engine: \(error.localizedDescription)"
             }
         } else {
+            writeLog("[MicMixer] Stopping")
             capture.stop()
             mixer.stop()
             errorMessage = nil
         }
-        save()
     }
 
     private func startCapture() async throws {
@@ -145,24 +156,25 @@ final class MixerState {
         }
     }
 
-    private func restartCapture() async {
+    private func restartCapture() {
         guard isActive else { return }
         capture.stop()
-        do {
-            try await startCapture()
-        } catch {
-            errorMessage = "Failed to restart capture: \(error.localizedDescription)"
+        Task { @MainActor in
+            do {
+                try await self.startCapture()
+            } catch {
+                self.errorMessage = "Failed to restart capture: \(error.localizedDescription)"
+            }
         }
     }
 
     // MARK: - Persistence
 
-    private static let defaults = UserDefaults.standard
+    nonisolated(unsafe) private static let defaults = UserDefaults.standard
     private static let keyPrefix = "MicMixer."
 
     private func save() {
         let d = Self.defaults
-        d.set(isActive, forKey: Self.keyPrefix + "isActive")
         d.set(systemVolume, forKey: Self.keyPrefix + "systemVolume")
         d.set(micVolume, forKey: Self.keyPrefix + "micVolume")
         d.set(filterMode.rawValue, forKey: Self.keyPrefix + "filterMode")
@@ -197,9 +209,6 @@ final class MixerState {
             selectedOutputDeviceUID = bh.uid
         }
 
-        // Restore active state last — triggers engine start
-        if d.bool(forKey: prefix + "isActive") {
-            isActive = true
-        }
+        // isActive always starts as false — user must toggle on manually
     }
 }
