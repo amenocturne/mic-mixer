@@ -1,0 +1,4 @@
+.build/
+MicMixer.app/
+.swiftpm/
+tmp/
