@@ -52,7 +52,7 @@ final class MixerState: ObservableObject, @unchecked Sendable {
     @Published var selectedOutputDeviceUID: String = "" {
         didSet {
             save()
-            if isActive { Task { @MainActor in self.syncEngine() } }
+            if isActive { reconnectOutput() }
         }
     }
 
@@ -144,6 +144,21 @@ final class MixerState: ObservableObject, @unchecked Sendable {
             capture.stop()
             mixer.stop()
             errorMessage = nil
+        }
+    }
+
+    // Only restarts the audio engine with a new output device — capture keeps running
+    private func reconnectOutput() {
+        guard let device = selectedOutputDevice else { return }
+        writeLog("[MicMixer] Reconnecting output to \(device.name)")
+        mixer.stop()
+        do {
+            try mixer.start(outputDeviceID: device.id)
+            mixer.setSystemVolume(systemVolume)
+            mixer.setMicVolume(micVolume)
+        } catch {
+            writeLog("[MicMixer] Reconnect failed: \(error)")
+            errorMessage = "Output device error: \(error.localizedDescription)"
         }
     }
 
