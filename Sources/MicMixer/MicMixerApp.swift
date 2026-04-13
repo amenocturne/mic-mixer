@@ -49,12 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func requestPermissions() {
-        // Screen Recording — triggers TCC prompt if not granted
         Task {
             _ = try? await SCShareableContent.current
+            await AVCaptureDevice.requestAccess(for: .audio)
         }
-        // Microphone — triggers TCC prompt if not granted
-        AVCaptureDevice.requestAccess(for: .audio) { _ in }
     }
 
     @objc private func handleClick() {
