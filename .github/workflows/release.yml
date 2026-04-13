@@ -30,16 +30,20 @@ jobs:
           generate_release_notes: true
 
       - name: Update Homebrew cask
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           SHA256=$(shasum -a 256 MicMixer.app.zip | awk '{print $1}')
+
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/amenocturne/homebrew-tap.git /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
 
           sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Casks/micmixer.rb
           sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" Casks/micmixer.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout master
           git add Casks/micmixer.rb
-          git commit -m "Update cask to ${VERSION}"
+          git commit -m "Update micmixer to ${VERSION}"
           git push
