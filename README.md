@@ -47,7 +47,18 @@ MicMixer captures and mixes audio, but needs BlackHole (or similar) as the virtu
 
 ## Install
 
-Download the latest `.app` from [Releases](https://github.com/amenocturne/mic-mixer/releases), or build from source:
+### Homebrew
+
+```bash
+brew tap amenocturne/mic-mixer
+brew install --cask micmixer
+```
+
+### Download
+
+Grab the latest `.app` from [Releases](https://github.com/amenocturne/mic-mixer/releases), unzip, and drag to `/Applications/`.
+
+### Build from source
 
 ```bash
 git clone https://github.com/amenocturne/mic-mixer.git
@@ -56,12 +67,6 @@ just install
 ```
 
 This builds a release binary, wraps it in an `.app` bundle, codesigns it ad-hoc, and copies it to `/Applications/`.
-
-Or run without installing:
-
-```bash
-just run
-```
 
 ### First launch
 

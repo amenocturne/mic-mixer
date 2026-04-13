@@ -21,11 +21,25 @@ jobs:
         run: bash scripts/bundle.sh
 
       - name: Create ZIP archive
-        run: |
-          ditto -c -k --keepParent MicMixer.app MicMixer.app.zip
+        run: ditto -c -k --keepParent MicMixer.app MicMixer.app.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: MicMixer.app.zip
           generate_release_notes: true
+
+      - name: Update Homebrew cask
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA256=$(shasum -a 256 MicMixer.app.zip | awk '{print $1}')
+
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" Casks/micmixer.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" Casks/micmixer.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout master
+          git add Casks/micmixer.rb
+          git commit -m "Update cask to ${VERSION}"
+          git push
